@@ -1,0 +1,29 @@
+{
+    "name": "zaerl/play-editor",
+    "author": "Francesco Bigiarini <play-editor@zaerl.com>",
+    "description": "The Play Editor is a single static file WYPIWYG WordPress Playground blueprints editor",
+    "private": true,
+    "type": "wordpress-plugin",
+    "license": "GPL-2.0-or-later",
+    "homepage": "https://github.com/zaerl/play-editor",
+    "support": {
+        "issues": "https://github.com/zaerl/play-editor/issues"
+    },
+    "require": {
+        "php": ">=8.0"
+    },
+    "require-dev": {
+        "wp-coding-standards/wpcs": "^3.1",
+        "phpcompatibility/phpcompatibility-wp": "^2.1"
+    },
+    "scripts": {
+        "post-install-cmd": [
+            "php compile.php"
+        ]
+    },
+    "config": {
+        "allow-plugins": {
+            "dealerdirect/phpcodesniffer-composer-installer": true
+        }
+    }
+}

@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<ruleset name="Zaerl.PlayEditor">
+    <description>PHPCS configuration for Play Editor</description>
+    <rule ref="WordPress" />
+    <rule ref="WordPress-Core" />
+    <arg name="extensions" value="php"/>
+
+    <exclude-pattern>vendor/</exclude-pattern>
+    <exclude-pattern>node_modules/</exclude-pattern>
+
+    <rule ref="WordPress-Extra">
+        <exclude name="WordPress.Files.FileName.InvalidClassFileName" />
+    </rule>
+</ruleset>

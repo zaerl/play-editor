@@ -1,0 +1,17 @@
+# Operating System Files
+.DS_Store
+Thumbs.db
+
+# Node/npm
+node_modules/
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+
+# Composer
+composer.lock
+vendor/
+
+# Build/Compiled Files
+index.html
+blueprint.json

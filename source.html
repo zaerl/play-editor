@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Play Editor</title>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+        #wp {
+            border: none;
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <iframe id="wp" src="about:blank"></iframe>
+
+    <script type="module">
+        import { startPlaygroundWeb } from 'https://playground.wordpress.net/client/index.js';
+
+        // See /wordpress/wordpress-playground/blob/trunk/packages/playground/website/builder/builder.ts
+        async function initializeBlueprint() {
+            const defaultBlueprint = {
+                landingPage: '/wp-admin/',
+                steps: [{
+                    step: 'login'
+                }],
+            };
+
+            if (window.location.hash) {
+                const hash = decodeURI(window.location.hash.substr(1));
+
+                try {
+                    let json = '';
+
+                    try {
+                        json = JSON.parse(atob(hash));
+                    } catch (e) {
+                        json = JSON.parse(hash);
+                    }
+
+                    return json;
+                } catch (error) {
+                    return defaultBlueprint;
+                }
+
+                return defaultBlueprint;
+            }
+
+            const urlParams = new URLSearchParams(window.location.search);
+            const blueprintUrl = urlParams.get('blueprint-url');
+
+            if(blueprintUrl === null) {
+                return defaultBlueprint;
+            }
+
+            try {
+                const url = new URL(blueprintUrl);
+
+                if(url.hostname === 'github.com') {
+                    url.pathname = url.pathname.replace(
+                        /^\/([^/]+)\/([^/]+)\/blob/,
+                        '/$1/$2/'
+                    );
+
+                    url.hostname = 'raw.githubusercontent.com';
+                }
+
+                const response = await fetch(url.toString());
+
+                return await response.json();
+            } catch (error) {
+                return defaultBlueprint;
+            }
+
+            return defaultBlueprint;
+        }
+
+        const plugin = ``;
+        let blueprint = await initializeBlueprint();
+
+        if(typeof blueprint.steps === 'undefined') {
+            blueprint.steps = [];
+        }
+
+        if(typeof blueprint.features === 'undefined') {
+            blueprint.features = {};
+        }
+
+        blueprint.features.networking = true;
+
+        const pluginFolder = '/wordpress/wp-content/mu-plugins';
+
+        const installPlugin = [
+            {
+                step: 'mkdir',
+                path: pluginFolder
+            },
+            {
+                step: 'writeFile',
+                path: pluginFolder + '/play-editor.php',
+                data: plugin
+            },
+            {
+                step: 'writeFile',
+                path: pluginFolder + '/blueprint.json',
+                data: JSON.stringify(blueprint)
+            }
+        ];
+
+        blueprint.steps = installPlugin.concat(blueprint.steps);
+
+        const client = await startPlaygroundWeb({
+            iframe: document.getElementById('wp'),
+            remoteUrl: `https://playground.wordpress.net/remote.html`,
+            onClientConnected: async (playground) => console.log(await playground.getCurrentURL()),
+            blueprint: blueprint,
+        });
+
+        await client.isReady();
+
+        client.onMessage((data) => {
+            data = JSON.parse(data);
+
+            if(data.type === 'open' || data.type === 'builder-open') {
+                // Preview the site.
+                window.open(data.url, '_blank');
+            } else if(data.type === 'copy') {
+                // Copy the blueprint to clipboard.
+                navigator.clipboard.writeText(data.blueprint);
+            } else if(data.type === 'download') {
+                // Download the blueprint.
+                const a = document.createElement('a');
+                a.href = 'data:text/json;charset=utf-8,' + encodeURIComponent(data.blueprint);
+                a.download = 'blueprint.json';
+                a.click();
+            }
+        });
+    </script>
+</body>
+</html>

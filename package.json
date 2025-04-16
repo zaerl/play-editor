@@ -1,0 +1,18 @@
+{
+  "name": "play-editor",
+  "description": "The Play Editor is a single static file WYPIWYG WordPress Playground blueprints editor",
+  "version": "0.1.0",
+  "author": "Francesco Bigiarini <play-editor@zaerl.com>",
+  "license": "GPL-2.0-or-later",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zaerl/play-editor.git",
+    "directory": "/"
+  },
+  "bugs": "https://github.com/zaerl/play-editor/issues",
+  "homepage": "https://github.com/zaerl/play-editor",
+  "scripts": {
+    "compile": "php compile.php"
+  }
+}
