@@ -20,8 +20,8 @@ $index_html = file_get_contents( 'source.html' );
 $updated_html = preg_replace(
 	'/const plugin = ``;/',
 	'const plugin = `' . str_replace(
-		array( '`', '$', '</script>' ),
-		array( '\\`', '\\$', '<\\/script>' ),
+		array( '$', '</script>' ),
+		array( '\\$', '<\\/script>' ),
 		$plugin_code
 	) . '`;',
 	$index_html
