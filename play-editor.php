@@ -213,7 +213,7 @@ function za_pe_get_generated_blueprint() {
 			unset( $post['ID'] );
 
 			foreach ( $post as $field => $value ) {
-				if ( null === $value || '' === $value || array() === $value ) {
+				if ( 'ID' === $field || null === $value || '' === $value || array() === $value ) {
 					continue;
 				}
 
@@ -710,6 +710,36 @@ function za_pe_load_blueprint() {
 }
 
 /**
+ * Intercept 'wp_set_comment_status' action.
+ *
+ * @param int    $comment_id The comment ID.
+ * @param string $comment_status The comment status.
+ */
+function za_pe_step_set_comment_status( $comment_id, $comment_status ) {
+	$blueprint = za_pe_get_blueprint();
+	$use_cli   = za_pe_get_settings()['use-cli'];
+
+	if ( $use_cli && 'hold' === $comment_status ) {
+		$comment_status = 'unapprove';
+	}
+
+	$step = array(
+		'_za_pe' => true,
+		'step'   => $use_cli ? 'wp-cli' : 'runPHP',
+	);
+
+	if ( $use_cli ) {
+		$step['command'] = sprintf( 'wp comment %s %d', $comment_status, $comment_id );
+	} else {
+		$step['code'] = sprintf( "<?php require_once 'wordpress/wp-load.php'; wp_set_comment_status( %d, '%s' ); ?>", $comment_id, $comment_status );
+	}
+
+	$blueprint['steps'][] = $step;
+
+	za_pe_set_blueprint( $blueprint );
+}
+
+/**
  * Bind the core steps.
  */
 function za_pe_bind_core_steps() {
@@ -785,6 +815,8 @@ function za_pe_bind_additional_steps() {
 
 	// Save or update a post for "save post" step.
 	add_action( 'save_post', 'za_pe_step_save_post', 10, 3 );
+
+	add_action( 'wp_set_comment_status', 'za_pe_step_set_comment_status', 10, 2 );
 }
 
 /**
