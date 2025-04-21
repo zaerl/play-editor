@@ -222,7 +222,7 @@ function za_pe_get_generated_blueprint() {
 		} else {
 			$step_cmd  = "<?php require_once 'wordpress/wp-load.php'; wp_insert_post( json_decode('";
 			$step_cmd .= wp_json_encode( $post );
-			$step_cmd .= "'); ?>";
+			$step_cmd .= "') ); ?>";
 		}
 
 		$step = array(
