@@ -801,6 +801,8 @@ function za_pe_init() {
 				'_za_pe' => 0,
 				'steps'  => array( array( 'step' => 'login' ) ),
 			);
+		} elseif ( ! array_key_exists( '_za_pe', $blueprint_content ) ) {
+			$blueprint_content['_za_pe'] = 0;
 		}
 
 		za_pe_set_blueprint( $blueprint_content );
