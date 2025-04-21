@@ -18,18 +18,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 /**
  * Set the blueprint for the Play Editor.
  *
- * @param array|null $blueprint The blueprint to set.
+ * @param array $blueprint The blueprint to set.
  * @return array The blueprint.
  */
-function zape_set_blueprint( $blueprint = null ) {
-	if ( null === $blueprint ) {
-		$blueprint = array(
-			'_za_pe' => true,
-			'steps'  => array( array( 'step' => 'login' ) ),
-		);
-	}
+function za_pe_set_blueprint( $blueprint ) {
+	++$blueprint['_za_pe'];
 
-	update_option( 'zape_blueprint', $blueprint );
+	update_option( 'za_pe_blueprint', $blueprint );
 
 	return $blueprint;
 }
@@ -39,8 +34,19 @@ function zape_set_blueprint( $blueprint = null ) {
  *
  * @return array The blueprint.
  */
-function zape_get_blueprint() {
-	return get_option( 'zape_blueprint' );
+function za_pe_get_blueprint() {
+	return get_option( 'za_pe_blueprint' );
+}
+
+/**
+ * Get the settings for the Play Editor.
+ *
+ * @return array The settings.
+ */
+function za_pe_get_settings() {
+	return array(
+		'use-cli' => false,
+	);
 }
 
 /**
@@ -49,7 +55,7 @@ function zape_get_blueprint() {
  * @param array $blueprint The blueprint.
  * @return array The blueprint.
  */
-function zape_ensure_networking( $blueprint ) {
+function za_pe_ensure_networking( $blueprint ) {
 	if ( ! array_key_exists( 'features', $blueprint ) ) {
 		$blueprint['features'] = array();
 	}
@@ -66,7 +72,7 @@ function zape_ensure_networking( $blueprint ) {
  *
  * @return bool
  */
-function zape_is_playground() {
+function za_pe_is_playground() {
 	// Main site or local environment.
 	return function_exists( 'post_message_to_js' );
 }
@@ -79,7 +85,7 @@ function zape_is_playground() {
  *
  * @return string The Playground URL.
  */
-function zape_get_playground_url( $blueprint_obj, $builder = false ) {
+function za_pe_get_playground_url( $blueprint_obj, $builder = false ) {
 	$url = 'https://playground.wordpress.net';
 
 	if ( $builder ) {
@@ -87,7 +93,7 @@ function zape_get_playground_url( $blueprint_obj, $builder = false ) {
 	}
 
 	if ( $blueprint_obj ) {
-		$url = $url . '#' . wp_json_encode( $blueprint_obj );
+		$url = $url . '#' . base64_encode( wp_json_encode( $blueprint_obj ) );
 	}
 
 	return $url;
@@ -99,7 +105,11 @@ function zape_get_playground_url( $blueprint_obj, $builder = false ) {
  * @param array $blueprint_obj The blueprint object.
  * @return array The cleaned blueprint object.
  */
-function zape_clean_blueprint( $blueprint_obj ) {
+function za_pe_clean_blueprint( $blueprint_obj ) {
+	if ( array_key_exists( '_za_pe', $blueprint_obj ) ) {
+		unset( $blueprint_obj['_za_pe'] );
+	}
+
 	if ( array_key_exists( 'steps', $blueprint_obj ) && is_array( $blueprint_obj['steps'] ) ) {
 		foreach ( $blueprint_obj['steps'] as $i => $step ) {
 			if ( array_key_exists( '_za_pe', $step ) ) {
@@ -112,15 +122,136 @@ function zape_clean_blueprint( $blueprint_obj ) {
 }
 
 /**
+ * Clean the post array. To save some space in the blueprint.
+ *
+ * @param array $post The post array.
+ * @param array $defaults The defaults array.
+ * @return array The cleaned post array.
+ */
+function za_pe_clean_post( $post, $defaults = array() ) {
+	$is_update = true;
+
+	if ( empty( $defaults ) ) {
+		$is_update = false;
+		$defaults  = array(
+			'post_content'          => '',
+			'post_content_filtered' => '',
+			'post_title'            => '',
+			'post_excerpt'          => '',
+			'post_status'           => 'draft',
+			'post_type'             => 'post',
+			'comment_status'        => '',
+			'ping_status'           => '',
+			'post_password'         => '',
+			'to_ping'               => '',
+			'pinged'                => '',
+			'post_parent'           => 0,
+			'menu_order'            => 0,
+			'guid'                  => '',
+			'import_id'             => 0,
+			'context'               => '',
+			'post_date'             => '',
+			'post_date_gmt'         => '',
+			'page_template'         => '', // Not a default field.
+			'post_name'             => '', // Not a default field.
+			'post_mime_type'        => '', // Not a default field.
+			'comment_count'         => 0,  // Not a default field.
+		);
+	} else {
+		// Remove ID if it's an update.
+		unset( $defaults['ID'] );
+	}
+
+	// Clean the post array, to same some space.
+	$post = array_diff_assoc( $post, $defaults );
+
+	// Remove some fields that are not needed.
+	unset( $post['guid'], $post['post_modified'], $post['post_modified_gmt'] );
+
+	if ( ! $is_update ) {
+		// Remove empty arrays.
+		if ( empty( $post['ancestors'] ) ) {
+			unset( $post['ancestors'] );
+		}
+
+		// Remove empty arrays.
+		if ( empty( $post['post_category'] ) ) {
+			unset( $post['post_category'] );
+		}
+
+		// Remove empty arrays.
+		if ( empty( $post['tags_input'] ) ) {
+			unset( $post['tags_input'] );
+		}
+	}
+
+	return $post;
+}
+
+/**
+ * Get the generated blueprint.
+ *
+ * @return array The generated blueprint.
+ */
+function za_pe_get_generated_blueprint() {
+	$blueprint = za_pe_get_blueprint();
+	$use_cli   = za_pe_get_settings()['use-cli'];
+	$posts     = get_posts(
+		array(
+			'post_type'      => 'post',
+			'posts_per_page' => -1,
+			'post_status'    => 'publish',
+		)
+	);
+
+	foreach ( $posts as $post ) {
+		$post     = za_pe_clean_post( $post->to_array() );
+		$step_cmd = '';
+
+		if ( $use_cli ) {
+			$step_cmd = sprintf( 'wp post update %d', $post['ID'] );
+			unset( $post['ID'] );
+
+			foreach ( $post as $field => $value ) {
+				if ( null === $value || '' === $value || array() === $value ) {
+					continue;
+				}
+
+				$step_cmd .= sprintf( ' --%s="%s"', $field, is_array( $value ) ? implode( ',', $value ) : $value );
+			}
+		} else {
+			$step_cmd  = "<?php require_once 'wordpress/wp-load.php'; wp_insert_post( json_decode('";
+			$step_cmd .= wp_json_encode( $post );
+			$step_cmd .= "'); ?>";
+		}
+
+		$step = array(
+			'_za_pe' => $post['ID'],
+			'step'   => $use_cli ? 'wp-cli' : 'runPHP',
+		);
+
+		if ( $use_cli ) {
+			$step['command'] = $step_cmd;
+		} else {
+			$step['code'] = $step_cmd;
+		}
+
+		$blueprint['steps'][] = $step;
+	}
+
+	return za_pe_clean_blueprint( $blueprint );
+}
+
+/**
  * Render the options page for the Play Editor.
  */
-function zape_options_page_html() {
+function za_pe_options_page_html() {
 	if ( ! current_user_can( 'manage_options' ) ) {
 		return;
 	}
 
-	$blueprint_obj      = zape_clean_blueprint( zape_get_blueprint() );
-	$blueprint_file_obj = zape_clean_blueprint( zape_load_blueprint() );
+	$blueprint_obj      = za_pe_get_generated_blueprint();
+	$blueprint_file_obj = za_pe_clean_blueprint( za_pe_load_blueprint() );
 
 	$blueprint      = wp_json_encode( $blueprint_obj, JSON_PRETTY_PRINT );
 	$blueprint_file = null;
@@ -155,12 +286,12 @@ function zape_options_page_html() {
 		}
 		</style>
 		<script>
-		function zape_get_blueprint(type) {
-			const is_playground = <?php echo zape_is_playground() ? 'true' : 'false'; ?>;
+		function za_pe_get_blueprint(type) {
+			const is_playground = <?php echo za_pe_is_playground() ? 'true' : 'false'; ?>;
 			const url = new URL('<?php echo admin_url('admin-ajax.php'); ?>');
-			url.searchParams.append('action', 'zape_get_blueprint');
+			url.searchParams.append('action', 'za_pe_get_blueprint');
 			url.searchParams.append('type', type);
-			url.searchParams.append('_wpnonce', '<?php echo esc_js( wp_create_nonce( 'zape_get_blueprint' ) ); ?>');
+			url.searchParams.append('_wpnonce', '<?php echo esc_js( wp_create_nonce( 'za_pe_get_blueprint' ) ); ?>');
 
 			fetch(url);
 		}
@@ -168,16 +299,16 @@ function zape_options_page_html() {
 		<h2><?php esc_html_e( 'Playground Blueprint', 'play-editor' ); ?></h2>
 		<pre id="za-pe-editor"><?php echo esc_html( $blueprint ); ?></pre>
 		<p>
-			<button type="button" class="za-pe-open-blueprint button" onclick="zape_get_blueprint('open')">
+			<button type="button" class="za-pe-open-blueprint button" onclick="za_pe_get_blueprint('open')">
 				<?php esc_html_e( 'Open on Playground', 'play-editor' ); ?>
 			</button>&nbsp;
-			<button type="button" class="za-pe-open-blueprint button" onclick="zape_get_blueprint('builder-open')">
+			<button type="button" class="za-pe-open-blueprint button" onclick="za_pe_get_blueprint('builder-open')">
 				<?php esc_html_e( 'Open on Playground Blueprint Builder', 'play-editor' ); ?>
 			</button>&nbsp;
-			<button type="button" class="za-pe-open-blueprint button" onclick="zape_get_blueprint('copy')">
+			<button type="button" class="za-pe-open-blueprint button" onclick="za_pe_get_blueprint('copy')">
 				<?php esc_html_e( 'Copy blueprint to clipboard', 'play-editor' ); ?>
 			</button>&nbsp;
-			<button type="button" class="za-pe-open-blueprint button" onclick="zape_get_blueprint('download')">
+			<button type="button" class="za-pe-open-blueprint button" onclick="za_pe_get_blueprint('download')">
 				<?php esc_html_e( 'Download blueprint', 'play-editor' ); ?>
 			</button>
 		</p>
@@ -195,8 +326,8 @@ function zape_options_page_html() {
  * @param string $plugin The plugin path.
  * @param bool   $network_wide Whether the plugin is being activated network-wide.
  */
-function zape_step_activate_plugin( $plugin, $network_wide ) {
-	$blueprint = zape_get_blueprint();
+function za_pe_step_activate_plugin( $plugin, $network_wide ) {
+	$blueprint = za_pe_get_blueprint();
 	$installed = null;
 	$slug      = null;
 
@@ -214,7 +345,7 @@ function zape_step_activate_plugin( $plugin, $network_wide ) {
 			'pluginPath' => $plugin,
 		);
 
-		return zape_set_blueprint( $blueprint );
+		return za_pe_set_blueprint( $blueprint );
 	}
 
 	foreach ( $blueprint['steps'] as $i => $step ) {
@@ -247,7 +378,7 @@ function zape_step_activate_plugin( $plugin, $network_wide ) {
 		);
 	}
 
-	zape_set_blueprint( zape_ensure_networking( $blueprint ) );
+	za_pe_set_blueprint( za_pe_ensure_networking( $blueprint ) );
 }
 
 /**
@@ -257,8 +388,8 @@ function zape_step_activate_plugin( $plugin, $network_wide ) {
  * @param WP_Theme $new_theme The new theme folder name.
  * @param WP_Theme $old_theme The old theme folder name.
  */
-function zape_step_activate_theme( $new_name, $new_theme, $old_theme ) {
-	$blueprint = zape_get_blueprint();
+function za_pe_step_activate_theme( $new_name, $new_theme, $old_theme ) {
+	$blueprint = za_pe_get_blueprint();
 	$installed = null;
 	$slug      = $new_theme->get_stylesheet();
 
@@ -292,7 +423,7 @@ function zape_step_activate_theme( $new_name, $new_theme, $old_theme ) {
 		);
 	}
 
-	zape_set_blueprint( zape_ensure_networking( $blueprint ) );
+	za_pe_set_blueprint( za_pe_ensure_networking( $blueprint ) );
 }
 
 /**
@@ -301,8 +432,8 @@ function zape_step_activate_theme( $new_name, $new_theme, $old_theme ) {
  * @param string $option_name The name of the option.
  * @param mixed  $value The value of the option.
  */
-function zape_added_option( $option_name, $value ) {
-	return zape_step_set_site_options( $option_name, null, $value );
+function za_pe_added_option( $option_name, $value ) {
+	return za_pe_step_set_site_options( $option_name, null, $value );
 }
 
 /**
@@ -312,8 +443,8 @@ function zape_added_option( $option_name, $value ) {
  * @param mixed  $value The value of the option.
  * @param int    $network_id The network ID.
  */
-function zape_add_site_option( $option_name, $value, $network_id ) {
-	return zape_step_set_site_options( $option_name, null, $value, $network_id );
+function za_pe_add_site_option( $option_name, $value, $network_id ) {
+	return za_pe_step_set_site_options( $option_name, null, $value, $network_id );
 }
 
 /**
@@ -324,11 +455,11 @@ function zape_add_site_option( $option_name, $value, $network_id ) {
  * @param mixed  $value The new value of the option.
  * @param int    $network_id The network ID.
  */
-function zape_step_set_site_options( $option_name, $old_value, $value, $network_id = null ) {
+function za_pe_step_set_site_options( $option_name, $old_value, $value, $network_id = null ) {
 	global $pagenow;
 
 	// Special case for Play Editor option.
-	if ( 'zape_blueprint' === $option_name ) {
+	if ( 'za_pe_blueprint' === $option_name ) {
 		return;
 	}
 
@@ -378,7 +509,7 @@ function zape_step_set_site_options( $option_name, $old_value, $value, $network_
 		$option_name = 'admin_email';
 	}
 
-	$blueprint = zape_get_blueprint();
+	$blueprint = za_pe_get_blueprint();
 
 	// Find if there's already a setSiteOptions step.
 	$found = false;
@@ -402,7 +533,7 @@ function zape_step_set_site_options( $option_name, $old_value, $value, $network_
 		$blueprint['steps'][ $found ]['options'][ $option_name ] = $value;
 	}
 
-	zape_set_blueprint( $blueprint );
+	za_pe_set_blueprint( $blueprint );
 }
 
 /**
@@ -414,7 +545,7 @@ function zape_step_set_site_options( $option_name, $old_value, $value, $network_
  * @param bool   $update Whether the term is being updated.
  * @param array  $args The arguments.
  */
-function zape_step_save_term( $term_id, $tt_id, $taxonomy, $update, $args ) {
+function za_pe_step_save_term( $term_id, $tt_id, $taxonomy, $update, $args ) {
 	global $pagenow;
 
 	if ( str_starts_with( $taxonomy, '_' ) ) {
@@ -458,7 +589,7 @@ function zape_step_save_term( $term_id, $tt_id, $taxonomy, $update, $args ) {
 		}
 	}
 
-	$blueprint = zape_get_blueprint();
+	$blueprint = za_pe_get_blueprint();
 
 	$blueprint['steps'][] = array(
 		'_za_pe'  => true,
@@ -466,23 +597,7 @@ function zape_step_save_term( $term_id, $tt_id, $taxonomy, $update, $args ) {
 		'command' => $cli_command,
 	);
 
-	zape_set_blueprint( $blueprint );
-}
-
-/**
- * Intercept 'wp_insert_post_data' filter for "save post" step.
- *
- * @param array $data The post data.
- * @param array $postarr The post array.
- * @param array $unsanitized_postarr The unsanitized post array.
- * @param bool  $update Whether the post is being updated.
- */
-function zape_insert_post_data( $data, $postarr, $unsanitized_postarr, $update ) {
-	if ( $update ) {
-		update_option( 'zape_post_data', get_post( $postarr['ID'], ARRAY_A ) );
-	}
-
-	return $data;
+	za_pe_set_blueprint( $blueprint );
 }
 
 /**
@@ -492,63 +607,18 @@ function zape_insert_post_data( $data, $postarr, $unsanitized_postarr, $update )
  * @param WP_Post $post The post object.
  * @param bool    $update Whether the post is being updated.
  */
-function zape_step_save_post( $post_id, $post, $update ) {
-	$blueprint = zape_get_blueprint();
-
-	if ( 'wp_global_styles' === $post->post_type ) {
+function za_pe_step_save_post( $post_id, $post, $update ) {
+	// Skip first auto-draft post and wp_global_styles.
+	if ( ( 'auto-draft' === $post->post_status || 'wp_global_styles' === $post->post_type ) ) {
 		return;
 	}
 
-	if ( $update ) {
-		$original_post = get_option( 'zape_post_data' );
+	if ( ! $update ) {
+		$blueprint = za_pe_get_blueprint();
+		++$blueprint['_za_pe'];
 
-		if ( is_null( $original_post ) ) {
-			return;
-		}
-
-		$changed_fields = array();
-
-		foreach ( $post->to_array() as $field => $value ) {
-			if ( isset( $original_post[ $field ] ) && $original_post[ $field ] !== $value ) {
-				$changed_fields[ $field ] = $value;
-			}
-		}
-
-		unset( $changed_fields['post_modified'] );
-		unset( $changed_fields['post_modified_gmt'] );
-
-		$cli_command = sprintf( 'wp post update %d', $post_id );
-
-		foreach ( $changed_fields as $field => $value ) {
-			$cli_command .= sprintf( ' --%s="%s"', $field, is_array( $value ) ? implode( ',', $value ) : $value );
-		}
-	} else {
-		$cli_command = 'wp post create';
-		$new_post    = $post->to_array();
-
-		unset( $new_post['comment_count'] );
-		unset( $new_post['guid'] );
-		unset( $new_post['ID'] );
-		unset( $new_post['post_modified'] );
-		unset( $new_post['post_modified_gmt'] );
-
-		foreach ( $new_post as $field => $value ) {
-			if ( null === $value || '' === $value || array() === $value ) {
-				continue;
-			}
-
-			$cli_command .= sprintf( ' --%s="%s"', $field, is_array( $value ) ? implode( ',', $value ) : $value );
-		}
+		za_pe_set_blueprint( $blueprint );
 	}
-
-	$blueprint['steps'][] = array(
-		'_za_pe'  => $post_id,
-		'step'    => 'wp-cli',
-		'command' => $cli_command,
-	);
-
-	delete_option( 'zape_post_data' );
-	zape_set_blueprint( $blueprint );
 }
 
 /**
@@ -557,8 +627,8 @@ function zape_step_save_post( $post_id, $post, $update ) {
  * @param int     $post_id The post ID.
  * @param WP_Post $post The post object.
  */
-function zape_step_delete_post( $post_id, $post ) {
-	$blueprint = zape_get_blueprint();
+function za_pe_step_delete_post( $post_id, $post ) {
+	$blueprint = za_pe_get_blueprint();
 	$found     = false;
 
 	foreach ( $blueprint['steps'] as $i => $step ) {
@@ -580,7 +650,7 @@ function zape_step_delete_post( $post_id, $post ) {
 		);
 	}
 
-	zape_set_blueprint( $blueprint );
+	za_pe_set_blueprint( $blueprint );
 }
 
 /**
@@ -591,7 +661,7 @@ function zape_step_delete_post( $post_id, $post ) {
  * @param string $meta_key The meta key.
  * @param mixed  $meta_value The meta value.
  */
-function zape_step_update_user_meta( $meta_id, $user_id, $meta_key, $meta_value ) {
+function za_pe_step_update_user_meta( $meta_id, $user_id, $meta_key, $meta_value ) {
 	$unused = array(
 		'community-events-location',
 		'session_tokens',
@@ -605,7 +675,7 @@ function zape_step_update_user_meta( $meta_id, $user_id, $meta_key, $meta_value 
 		return;
 	}
 
-	$blueprint = zape_get_blueprint();
+	$blueprint = za_pe_get_blueprint();
 
 	$blueprint['steps'][] = array(
 		'_za_pe' => true,
@@ -616,7 +686,7 @@ function zape_step_update_user_meta( $meta_id, $user_id, $meta_key, $meta_value 
 		'userId' => $user_id,
 	);
 
-	zape_set_blueprint( $blueprint );
+	za_pe_set_blueprint( $blueprint );
 }
 
 /**
@@ -624,7 +694,7 @@ function zape_step_update_user_meta( $meta_id, $user_id, $meta_key, $meta_value 
  *
  * @return array|null The blueprint.
  */
-function zape_load_blueprint() {
+function za_pe_load_blueprint() {
 	$blueprint_path = plugin_dir_path( __FILE__ ) . 'blueprint.json';
 
 	if ( file_exists( $blueprint_path ) ) {
@@ -642,12 +712,12 @@ function zape_load_blueprint() {
 /**
  * Bind the core steps.
  */
-function zape_bind_core_steps() {
+function za_pe_bind_core_steps() {
 	// The 'activatePlugin' step.
-	add_action( 'activate_plugin', 'zape_step_activate_plugin', 10, 2 );
+	add_action( 'activate_plugin', 'za_pe_step_activate_plugin', 10, 2 );
 
 	// The 'activateTheme' step.
-	add_action( 'switch_theme', 'zape_step_activate_theme', 10, 3 );
+	add_action( 'switch_theme', 'za_pe_step_activate_theme', 10, 3 );
 
 	// NOT SUPPORTED.
 	// The wp-config.php steps.
@@ -659,10 +729,10 @@ function zape_bind_core_steps() {
 	// The 'importWxr' step.
 
 	// The 'installPlugin' step.
-	// See zape_step_activate_plugin().
+	// See za_pe_step_activate_plugin().
 
 	// The 'installTheme' step.
-	// See zape_step_activate_theme().
+	// See za_pe_step_activate_theme().
 
 	// The 'login' step.
 	// Added by default.
@@ -680,16 +750,16 @@ function zape_bind_core_steps() {
 	// The 'setSiteLanguage' step.
 
 	// 'setSiteOptions' step.
-	add_action( 'updated_option', 'zape_step_set_site_options', 10, 3 );
-	add_action( 'added_option', 'zape_added_option', 10, 2 );
-	add_action( 'update_site_option', 'zape_step_set_site_options', 10, 4 );
-	add_action( 'add_site_option', 'zape_add_site_option', 10, 3 );
+	add_action( 'updated_option', 'za_pe_step_set_site_options', 10, 3 );
+	add_action( 'added_option', 'za_pe_added_option', 10, 2 );
+	add_action( 'update_site_option', 'za_pe_step_set_site_options', 10, 4 );
+	add_action( 'add_site_option', 'za_pe_add_site_option', 10, 3 );
 
 	// The 'unzip' step.
 
 	// The 'updateUserMeta' step.
-	add_action( 'updated_user_meta', 'zape_step_update_user_meta', 10, 4 );
-	add_action( 'added_user_meta', 'zape_step_update_user_meta', 10, 4 );
+	add_action( 'updated_user_meta', 'za_pe_step_update_user_meta', 10, 4 );
+	add_action( 'added_user_meta', 'za_pe_step_update_user_meta', 10, 4 );
 
 	// The 'wp-cli' step.
 
@@ -706,45 +776,47 @@ function zape_bind_core_steps() {
 /**
  * Bind the additional steps.
  */
-function zape_bind_additional_steps() {
+function za_pe_bind_additional_steps() {
 	// Save or update a term for "save term" step.
-	add_action( 'saved_term', 'zape_step_save_term', 10, 5 );
+	add_action( 'saved_term', 'za_pe_step_save_term', 10, 5 );
 
 	// Delete a post for "delete post" step.
-	add_action( 'delete_post', 'zape_step_delete_post', 10, 2 );
+	add_action( 'delete_post', 'za_pe_step_delete_post', 10, 2 );
 
 	// Save or update a post for "save post" step.
-	add_action( 'save_post', 'zape_step_save_post', 10, 3 );
-	add_filter( 'wp_insert_post_data', 'zape_insert_post_data', 10, 4 );
+	add_action( 'save_post', 'za_pe_step_save_post', 10, 3 );
 }
 
 /**
  * Initialize the Play Editor plugin.
  */
-function zape_init() {
-	$blueprint = zape_get_blueprint();
+function za_pe_init() {
+	$blueprint = za_pe_get_blueprint();
 
 	if ( false === $blueprint ) {
-		$blueprint_content = zape_load_blueprint();
+		$blueprint_content = za_pe_load_blueprint();
 
-		if ( $blueprint_content ) {
-			zape_set_blueprint( $blueprint_content );
-		} else {
-			zape_set_blueprint();
+		if ( ! $blueprint_content ) {
+			$blueprint_content = array(
+				'_za_pe' => 0,
+				'steps'  => array( array( 'step' => 'login' ) ),
+			);
 		}
+
+		za_pe_set_blueprint( $blueprint_content );
 	}
 
-	zape_bind_core_steps();
-	zape_bind_additional_steps();
+	za_pe_bind_core_steps();
+	za_pe_bind_additional_steps();
 }
 
-add_action( 'init', 'zape_init', 0 );
+add_action( 'init', 'za_pe_init', 0 );
 
 /**
  * Add the submenu page for the Play Editor.
  */
-function zape_options_page() {
-	$blueprint = zape_get_blueprint();
+function za_pe_options_page() {
+	$blueprint = za_pe_get_blueprint();
 	$count     = 0;
 
 	foreach ( $blueprint['steps'] as $step ) {
@@ -762,29 +834,29 @@ function zape_options_page() {
 		$menu_title,
 		'manage_options',
 		'za_pe',
-		'zape_options_page_html',
+		'za_pe_options_page_html',
 		'dashicons-coffee',
 	);
 }
 
 // Add the submenu page for the Play Editor.
-add_action( 'admin_menu', 'zape_options_page' );
+add_action( 'admin_menu', 'za_pe_options_page' );
 
 /**
  * Blueprint AJAX handler.
  */
-function zape_ajax_get_blueprint() {
-	if ( ! check_ajax_referer( 'zape_get_blueprint', '_wpnonce', false ) ) {
+function za_pe_ajax_get_blueprint() {
+	if ( ! check_ajax_referer( 'za_pe_get_blueprint', '_wpnonce', false ) ) {
 		wp_die( 'Invalid nonce' );
 	}
 
 	$type = isset( $_GET['type'] ) ? sanitize_text_field( wp_unslash( $_GET['type'] ) ) : '';
 
-	$blueprint_obj = zape_clean_blueprint( zape_get_blueprint() );
+	$blueprint_obj = za_pe_get_generated_blueprint();
 	$message       = array(
 		'blueprint' => wp_json_encode( $blueprint_obj, JSON_PRETTY_PRINT ) ?? '{}',
 		'type'      => $type,
-		'url'       => zape_get_playground_url( $blueprint_obj, 'builder-open' === $type ),
+		'url'       => za_pe_get_playground_url( $blueprint_obj, 'builder-open' === $type ),
 	);
 
 	post_message_to_js( wp_json_encode( $message ) );
@@ -793,4 +865,4 @@ function zape_ajax_get_blueprint() {
 	die();
 }
 
-add_action( 'wp_ajax_zape_get_blueprint', 'zape_ajax_get_blueprint' );
+add_action( 'wp_ajax_za_pe_get_blueprint', 'za_pe_ajax_get_blueprint' );
